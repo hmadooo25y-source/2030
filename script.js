@@ -2037,3 +2037,304 @@ function checkPassword() {
     trigger.addEventListener('click', openScreen);
     closeIcon?.addEventListener('click', closeScreen);
 })();
+
+// ============================================
+// دالة البحث عن التجار (Merchant Search)
+// ============================================
+
+/**
+ * البحث في قائمة التجار (محلية وسحابية)
+ * @param {string} query - نص البحث
+ * @returns {array} - قائمة التجار المطابقة
+ */
+async function searchMerchants(query) {
+    const q = String(query || '').trim().toLowerCase();
+    if (!q) return [];
+    
+    const results = [];
+    const seen = new Set();
+    
+    // دالة مساعدة للتحقق من التكرار
+    const addUnique = (merchant) => {
+        const key = `${String(merchant.phone).trim()}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            results.push(merchant);
+        }
+    };
+    
+    // 1️⃣ البحث في البيانات السحابية (JSONBin)
+    try {
+        const cloudRecord = await jsonBinRead();
+        const merchants = [];
+        
+        // جمع التجار من السحابة
+        if (cloudRecord && Array.isArray(cloudRecord.contacts)) {
+            cloudRecord.contacts.forEach(c => {
+                if (c.type === 'merchant') {
+                    merchants.push(c);
+                }
+            });
+        }
+        if (cloudRecord && Array.isArray(cloudRecord.contacts_directory)) {
+            cloudRecord.contacts_directory.forEach(c => {
+                if (c.type === 'merchant') {
+                    merchants.push(c);
+                }
+            });
+        }
+        
+        // البحث في التجار السحابيين
+        merchants.forEach(merchant => {
+            const name = String(merchant.name || '').toLowerCase();
+            const phone = String(merchant.phone || '').toLowerCase();
+            
+            if (name.includes(q) || phone.includes(q)) {
+                addUnique(merchant);
+            }
+        });
+    } catch (e) {
+        console.warn('خطأ في البحث السحابي عن التجار:', e);
+    }
+    
+    // 2️⃣ البحث في قائمة التجار المحلية
+    const localMerchants = getLocalMerchants();
+    localMerchants.forEach(merchant => {
+        const name = String(merchant.name || '').toLowerCase();
+        const phone = String(merchant.phone || '').toLowerCase();
+        
+        if (name.includes(q) || phone.includes(q)) {
+            addUnique(merchant);
+        }
+    });
+    
+    // 3️⃣ إضافة التاجر المحفوظ إذا طابق
+    const savedMerchantPhone = String(localStorage.getItem('merchant_phone') || '').toLowerCase();
+    const savedMerchantName = String(localStorage.getItem('merchant_name') || '').toLowerCase();
+    
+    if (savedMerchantPhone && savedMerchantName) {
+        if (savedMerchantName.includes(q) || savedMerchantPhone.includes(q)) {
+            addUnique({
+                name: localStorage.getItem('merchant_name'),
+                phone: localStorage.getItem('merchant_phone'),
+                type: 'saved-merchant'
+            });
+        }
+    }
+    
+    return results;
+}
+
+/**
+ * الحصول على قائمة التجار المحلية
+ */
+function getLocalMerchants() {
+    try {
+        const raw = localStorage.getItem('merchants_list');
+        const data = raw ? JSON.parse(raw) : [];
+        return Array.isArray(data) ? data : [];
+    } catch (_) { 
+        return []; 
+    }
+}
+
+/**
+ * عرض نتائج البحث عن التجار
+ */
+async function displayMerchantSearchResults(results) {
+    const searchContainer = document.querySelector('.merchant-search-container');
+    if (!searchContainer) return;
+    
+    let resultsContainer = document.getElementById('merchant-search-results-container');
+    
+    // إنشاء حاوية النتائج إذا لم تكن موجودة
+    if (!resultsContainer) {
+        resultsContainer = document.createElement('div');
+        resultsContainer.id = 'merchant-search-results-container';
+        resultsContainer.style.cssText = `
+            margin-top: 15px;
+            border-radius: 8px;
+            background: #f8f9fa;
+            max-height: 400px;
+            overflow-y: auto;
+            position: absolute;
+            width: 90%;
+            z-index: 1000;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        `;
+        searchContainer?.after(resultsContainer);
+    }
+    
+    // إذا لا توجد نتائج
+    if (!results || results.length === 0) {
+        resultsContainer.innerHTML = `
+            <div style="padding: 20px; text-align: center; color: #999;">
+                لا توجد نتائج للبحث
+            </div>
+        `;
+        return;
+    }
+    
+    // عرض النتائج
+    resultsContainer.innerHTML = results.map((merchant, idx) => `
+        <div style="
+            padding: 12px;
+            border-bottom: 1px solid #e0e0e0;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.2s;
+        " 
+        onmouseover="this.style.background='#e8f4f8'"
+        onmouseout="this.style.background='transparent'"
+        onclick="selectMerchant('${merchant.phone.replace(/'/g, "\\'")}', '${merchant.name.replace(/'/g, "\\'")}')"
+        >
+            <div>
+                <div style="font-weight: 600; color: #333; margin-bottom: 4px;">
+                    ${merchant.name}
+                    ${merchant.type === 'saved-merchant' ? ' ⭐' : ''}
+                </div>
+                <div style="color: #666; font-size: 14px;">
+                    ${merchant.phone}
+                </div>
+            </div>
+            <span style="color: #0066cc; font-size: 18px;">→</span>
+        </div>
+    `).join('');
+}
+
+/**
+ * اختيار تاجر من نتائج البحث
+ */
+function selectMerchant(phone, name) {
+    const searchField = document.querySelector('#merchant-phone-input');
+    if (searchField) {
+        searchField.value = phone;
+    }
+    
+    // إخفاء نتائج البحث
+    const resultsContainer = document.getElementById('merchant-search-results-container');
+    if (resultsContainer) {
+        resultsContainer.innerHTML = '';
+    }
+    
+    // حفظ بيانات التاجر مباشرة (اختياري)
+    // localStorage.setItem('merchant_phone', phone);
+    // localStorage.setItem('merchant_name', name);
+}
+
+/**
+ * إضافة حقل بحث للتجار في الشاشة 8
+ */
+function addMerchantSearchField() {
+    const s8Content = document.querySelector('#screen-8 .main-content');
+    if (!s8Content) return;
+    
+    // تحقق من وجود حقل البحث
+    if (document.querySelector('.merchant-search-container')) return;
+    
+    // إنشاء حاوية البحث
+    const searchContainer = document.createElement('div');
+    searchContainer.className = 'merchant-search-container';
+    searchContainer.style.cssText = `
+        margin-bottom: 20px;
+        position: relative;
+    `;
+    
+    searchContainer.innerHTML = `
+        <input 
+            type="text" 
+            placeholder="🔍 ابحث عن تاجر..." 
+            class="merchant-search-field"
+            style="
+                width: 100%;
+                padding: 12px;
+                border: 2px solid #e0e0e0;
+                border-radius: 8px;
+                font-size: 14px;
+                font-family: inherit;
+                text-align: right;
+                direction: rtl;
+            "
+        >
+    `;
+    
+    // إدراج البحث قبل حقل رقم الموبايل
+    const s8InputRow = s8Content.querySelector('.s8-input-row');
+    if (s8InputRow) {
+        s8InputRow.parentNode.insertBefore(searchContainer, s8InputRow);
+    }
+    
+    // تفعيل البحث
+    initMerchantSearchListener();
+}
+
+/**
+ * إضافة event listener لحقل بحث التجار
+ */
+function initMerchantSearchListener() {
+    const searchField = document.querySelector('.merchant-search-field');
+    if (!searchField) return;
+    
+    // متغير timeout للتأخير
+    let searchTimeout;
+    
+    searchField.addEventListener('input', async (e) => {
+        const query = e.target.value;
+        
+        // إخفاء النتائج إذا كان الحقل فارغاً
+        const resultsContainer = document.getElementById('merchant-search-results-container');
+        if (!query.trim()) {
+            if (resultsContainer) resultsContainer.innerHTML = '';
+            return;
+        }
+        
+        // تأخير البحث قليلاً
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(async () => {
+            try {
+                const results = await searchMerchants(query);
+                await displayMerchantSearchResults(results);
+            } catch (e) {
+                console.error('خطأ في بحث التجار:', e);
+                if (resultsContainer) {
+                    resultsContainer.innerHTML = `
+                        <div style="padding: 20px; text-align: center; color: #d32f2f;">
+                            حدث خطأ في البحث
+                        </div>
+                    `;
+                }
+            }
+        }, 300);
+    });
+    
+    // إخفاء النتائج عند الضغط على Escape
+    searchField.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const resultsContainer = document.getElementById('merchant-search-results-container');
+            if (resultsContainer) resultsContainer.innerHTML = '';
+        }
+    });
+}
+
+// تفعيل حقل البحث عند الذهاب للشاشة 8
+// نحتاج لاستدعاء هذا الدالة عند عرض الشاشة
+window.addEventListener('load', () => {
+    // سنستدعيها من showScreen('s8')
+});
+
+// Override showScreen لإضافة حقل البحث
+const originalShowScreen = window.showScreen;
+if (originalShowScreen) {
+    window.showScreen = function(screenId) {
+        originalShowScreen(screenId);
+        
+        // إذا كانت شاشة الدفع للتاجر
+        if (screenId === 's8') {
+            setTimeout(() => {
+                addMerchantSearchField();
+            }, 100);
+        }
+    };
+}
