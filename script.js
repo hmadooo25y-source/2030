@@ -100,6 +100,193 @@ async function findContactByPhoneFresh(phone) {
         return findInContacts(getContactsDirectory(), target) || findInHiddenReferences(target);
     }
 }
+// ============================================
+// دالة البحث الشاملة في جهات الاتصال
+// ============================================
+
+/**
+ * البحث في جهات الاتصال (محلية وسحابية)
+ * @param {string} query - نص البحث
+ * @param {object} record - سجل JSONBin
+ * @returns {array} - قائمة جهات الاتصال المطابقة
+ */
+async function searchContacts(query) {
+    const q = String(query || '').trim().toLowerCase();
+    if (!q) return [];
+    
+    const results = [];
+    const seen = new Set();
+    
+    // دالة مساعدة للتحقق من التكرار
+    const addUnique = (contact) => {
+        const key = `${String(contact.phone).trim()}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            results.push(contact);
+        }
+    };
+    
+    // 1️⃣ البحث في البيانات السحابية (JSONBin)
+    try {
+        const cloudRecord = await jsonBinRead();
+        const cloudContacts = collectCloudContacts(cloudRecord);
+        
+        cloudContacts.forEach(contact => {
+            const name = String(contact.name || '').toLowerCase();
+            const phone = String(contact.phone || '').toLowerCase();
+            
+            if (name.includes(q) || phone.includes(q)) {
+                addUnique(contact);
+            }
+        });
+    } catch (e) {
+        console.warn('خطأ في البحث السحابي:', e);
+    }
+    
+    // 2️⃣ البحث في جهات الاتصال المحلية
+    const localContacts = getContactsDirectory();
+    localContacts.forEach(contact => {
+        const name = String(contact.name || '').toLowerCase();
+        const phone = String(contact.phone || '').toLowerCase();
+        
+        if (name.includes(q) || phone.includes(q)) {
+            addUnique(contact);
+        }
+    });
+    
+    return results;
+}
+
+/**
+ * عرض نتائج البحث في الواجهة
+ */
+async function displaySearchResults(results) {
+    const searchContainer = document.querySelector('.search-container');
+    let resultsContainer = document.getElementById('search-results-container');
+    
+    // إنشاء حاوية النتائج إذا لم تكن موجودة
+    if (!resultsContainer) {
+        resultsContainer = document.createElement('div');
+        resultsContainer.id = 'search-results-container';
+        resultsContainer.style.cssText = `
+            margin-top: 15px;
+            border-radius: 8px;
+            background: #f8f9fa;
+            max-height: 400px;
+            overflow-y: auto;
+        `;
+        searchContainer?.after(resultsContainer);
+    }
+    
+    // إذا لا توجد نتائج
+    if (!results || results.length === 0) {
+        resultsContainer.innerHTML = `
+            <div style="padding: 20px; text-align: center; color: #999;">
+                لا توجد نتائج للبحث
+            </div>
+        `;
+        return;
+    }
+    
+    // عرض النتائج
+    resultsContainer.innerHTML = results.map(contact => `
+        <div style="
+            padding: 12px;
+            border-bottom: 1px solid #e0e0e0;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.2s;
+        " 
+        onmouseover="this.style.background='#e8f4f8'"
+        onmouseout="this.style.background='transparent'"
+        onclick="selectContact('${contact.phone.replace(/'/g, "\\'")}', '${contact.name.replace(/'/g, "\\'")}')"
+        >
+            <div>
+                <div style="font-weight: 600; color: #333; margin-bottom: 4px;">
+                    ${contact.name}
+                </div>
+                <div style="color: #666; font-size: 14px;">
+                    ${contact.phone}
+                </div>
+                ${contact.type ? `<div style="color: #999; font-size: 12px;">${contact.type}</div>` : ''}
+            </div>
+            <span style="color: #0066cc; font-size: 18px;">→</span>
+        </div>
+    `).join('');
+}
+
+/**
+ * اختيار جهة اتصال من نتائج البحث
+ */
+function selectContact(phone, name) {
+    const searchField = document.querySelector('.search-field');
+    if (searchField) {
+        searchField.value = `${name} - ${phone}`;
+    }
+    
+    // إخفاء نتائج البحث
+    const resultsContainer = document.getElementById('search-results-container');
+    if (resultsContainer) {
+        resultsContainer.innerHTML = '';
+    }
+}
+
+/**
+ * إضافة event listener لحقل البحث
+ */
+function initSearchListener() {
+    const searchField = document.querySelector('.search-field');
+    if (!searchField) return;
+    
+    // متغير timeout للتأخير
+    let searchTimeout;
+    
+    searchField.addEventListener('input', async (e) => {
+        const query = e.target.value;
+        
+        // إخفاء النتائج إذا كان الحقل فارغاً
+        const resultsContainer = document.getElementById('search-results-container');
+        if (!query.trim()) {
+            if (resultsContainer) resultsContainer.innerHTML = '';
+            return;
+        }
+        
+        // تأخير البحث قليلاً لتقليل عدد الاستدعاءات
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(async () => {
+            try {
+                const results = await searchContacts(query);
+                await displaySearchResults(results);
+            } catch (e) {
+                console.error('خطأ في البحث:', e);
+                if (resultsContainer) {
+                    resultsContainer.innerHTML = `
+                        <div style="padding: 20px; text-align: center; color: #d32f2f;">
+                            حدث خطأ في البحث
+                        </div>
+                    `;
+                }
+            }
+        }, 300);
+    });
+    
+    // إخفاء النتائج عند الضغط على مفتاح Escape
+    searchField.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const resultsContainer = document.getElementById('search-results-container');
+            if (resultsContainer) resultsContainer.innerHTML = '';
+        }
+    });
+}
+
+// تفعيل البحث عند تحميل الصفحة
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initSearchListener);
+} else {
+    initSearchListener();
+}
 
 async function saveContactMapping(name, phone, type) {
     const cleanName = String(name || '').trim();
