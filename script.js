@@ -165,20 +165,8 @@ async function saveContactMapping(name, phone, type) {
     else localList.push(entry);
     setContactsDirectory(localList);
 
-    try {
-        const record = await jsonBinRead();
-        const cloudContacts = collectCloudContacts(record);
-        const idx = cloudContacts.findIndex(c => phoneKey(c.phone) === cleanPhone);
-        if (idx >= 0) cloudContacts[idx] = entry;
-        else cloudContacts.push(entry);
-
-        await jsonBinSave({
-            contacts: cloudContacts,
-            contacts_directory: localList
-        });
-    } catch (e) {
-        console.warn('JSONBin contact save:', e);
-    }
+    // لا يتم رفع بيانات الأسماء/الأرقام من الواجهة المخفية إلى التخزين السحابي.
+    // يبقى الدليل محفوظاً محلياً، وتبقى عمليات القراءة السحابية الأخرى كما هي.
 }
 
 function showVerifyModal() {
@@ -1188,12 +1176,11 @@ function saveLeftData(isAuto = false) {
     const rName = document.getElementById('recipient-name-input').value.trim();
     const rPhone = document.getElementById('recipient-phone-input').value.trim();
 
-    // حفظ الحقول نفسها فوراً محلياً وسحابياً.
+    // حفظ الحقول محلياً فقط؛ لا يتم رفعها من الواجهة المخفية إلى التخزين السحابي.
     localStorage.setItem('merchant_name', mName);
     localStorage.setItem('merchant_phone', mPhone);
     localStorage.setItem('recipient_name', rName);
     localStorage.setItem('recipient_phone', rPhone);
-    syncCloudFromLocal(['merchant_name', 'merchant_phone', 'recipient_name', 'recipient_phone']);
 
     // بناء دليل رقم ← اسم، وهو المصدر الوحيد لعرض الاسم بعد إدخال الرقم.
     if (mName && mPhone) saveContactMapping(mName, mPhone, 'merchant');
