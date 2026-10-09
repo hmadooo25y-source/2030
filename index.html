@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>بلادي بلادي</title>
+<style>
+  :root { --bg:#fff; --fg:#1a1a1a; --accent:#ce1126; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111; --fg:#f2f2f2; } }
+  * { box-sizing: border-box; }
+  body {
+    margin:0; min-height:100vh; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:20px; padding:20px;
+    background:var(--bg); color:var(--fg);
+    font-family:"Segoe UI", Tahoma, Arial, sans-serif; text-align:center;
+  }
+  .bar { width:100%; max-width:420px; height:8px; border-radius:4px;
+    background:linear-gradient(to left,#ce1126 33%,#fff 33% 66%,#000 66%); border:1px solid #8884; }
+  img { max-width:100%; width:320px; border-radius:12px; box-shadow:0 6px 20px #0004; }
+  h1 { margin:0; font-size:1.8rem; line-height:1.6; }
+  button {
+    font-size:1.1rem; padding:12px 28px; border:0; border-radius:30px;
+    background:var(--accent); color:#fff; cursor:pointer;
+  }
+  button:active { transform:scale(.97); }
+  #msg { font-size:.9rem; opacity:.7; min-height:1.2em; }
+</style>
+</head>
+<body>
+  <div class="bar"></div>
+  <img id="pic" alt="العلم"
+       src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTSLGtHPWUIB4FPsxh7v-LO1rW0Bbx8YUDVQM9GQF56W4Ze0C_3Cl_M8GA&s=10">
+  <h1>بلادي بلادي<br>لكِ حبي وفؤادي</h1>
+  <button id="play">🔊 استمع</button>
+  <div id="msg"></div>
+
+<script>
+  const text = "بلادي بلادي لكِ حبي وفؤادي";
+  const msg = document.getElementById("msg");
+  document.getElementById("pic").onerror = function () { this.style.display = "none"; };
+
+  function speak() {
+    if (!("speechSynthesis" in window)) {
+      msg.textContent = "المتصفح لا يدعم النطق الصوتي";
+      return;
+    }
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    const voices = speechSynthesis.getVoices();
+    const v = voices.find(x => x.lang.startsWith("ar-EG")) ||
+              voices.find(x => x.lang.startsWith("ar"));
+    u.lang = v ? v.lang : "ar-SA";
+    if (v) u.voice = v;
+    u.rate = 0.85;
+    u.onstart = () => msg.textContent = "";
+    u.onerror = () => msg.textContent = "تعذر تشغيل الصوت";
+    speechSynthesis.speak(u);
+  }
+
+  document.getElementById("play").addEventListener("click", speak);
+</script>
+</body>
+</html>
